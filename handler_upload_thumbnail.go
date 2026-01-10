@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"mime"
@@ -73,8 +75,15 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusUnauthorized, "Unauthorized", nil)
 		return
 	}
+	key := make([]byte, 32)
+	_, err = rand.Read(key)
+	if err != nil {
+		respondWithError(w, http.StatusNotFound, err.Error(), err)
+		return
+	}
+	thumbnailId := base64.RawURLEncoding.EncodeToString(key)
 
-	dstFilePath := fmt.Sprintf("%s.%s", filepath.Join(cfg.assetsRoot, videoIDString), determineFileExtension(mediaType))
+	dstFilePath := fmt.Sprintf("%s.%s", filepath.Join(cfg.assetsRoot, thumbnailId), determineFileExtension(mediaType))
 	dstFile, err := os.Create(dstFilePath)
 	defer func(f *os.File) {
 		closeErr := f.Close()
