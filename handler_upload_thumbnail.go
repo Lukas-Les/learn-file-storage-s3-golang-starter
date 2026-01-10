@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -13,6 +15,8 @@ import (
 )
 
 const maxMemory = 10 << 20
+
+var allowedMediaTyes = []string{"image/jpeg", "image/png"}
 
 func determineFileExtension(contentType string) string {
 	parts := strings.Split(contentType, "/")
@@ -55,7 +59,11 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		respondWithError(w, http.StatusInternalServerError, err.Error(), err)
 		return
 	}
-	mediaType := h.Header.Get("Content-Type")
+	mediaType, _, err := mime.ParseMediaType(h.Header.Get("Content-Type"))
+	if !slices.Contains(allowedMediaTyes, mediaType) {
+		respondWithError(w, http.StatusBadRequest, fmt.Sprintf("not allowed file type. Allowed types: %v", allowedMediaTyes), nil)
+		return
+	}
 	dbVideo, err := cfg.db.GetVideo(videoID)
 	if err != nil {
 		respondWithError(w, http.StatusNotFound, err.Error(), err)
