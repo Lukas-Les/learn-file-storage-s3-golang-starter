@@ -75,7 +75,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 
 	tempFile, err := os.CreateTemp("", "tubely-upload-*.mp4")
 	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Couldn't validate JWT", err)
+		respondWithError(w, http.StatusUnauthorized, err.Error(), err)
 		return
 	}
 
@@ -88,14 +88,25 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ratio, err := getVideoAspectRatio(tempFile.Name())
+	fastStartProcesedFilePath, err := processVideoForFastStart(tempFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error(), err)
+		return
+	}
+	fastStartProcesedFile, err := os.Open(fastStartProcesedFilePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error(), err)
+		return
+	}
+
+	ratio, err := getVideoAspectRatio(fastStartProcesedFilePath)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error(), err)
 		return
 	}
 	prefix := getPrexif(ratio)
 
-	tempFile.Seek(0, io.SeekStart)
+	fastStartProcesedFile.Seek(0, io.SeekStart)
 	objName, err := newVideoKey()
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error(), err)
@@ -105,7 +116,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	putObjInput := s3.PutObjectInput{
 		Bucket:      &cfg.s3Bucket,
 		Key:         &s3Key,
-		Body:        tempFile,
+		Body:        fastStartProcesedFile,
 		ContentType: &mediaType,
 	}
 	cfg.s3Client.PutObject(r.Context(), &putObjInput)
@@ -115,7 +126,6 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error(), err)
 	}
-
 }
 
 type ffprobeResult struct {
@@ -244,4 +254,17 @@ func getPrexif(ratio string) string {
 		return "portrait"
 	}
 	return "other"
+}
+
+func processVideoForFastStart(filePath string) (string, error) {
+	processedFilePath := fmt.Sprintf("%s.processing", filePath)
+
+	cmd := exec.Command("ffmpeg", "-i", filePath, "-c", "copy", "-movflags", "faststart", "-f", "mp4", processedFilePath)
+	var buff bytes.Buffer
+	cmd.Stdout = &buff
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+	return processedFilePath, nil
 }
